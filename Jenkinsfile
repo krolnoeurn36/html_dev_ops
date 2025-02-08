@@ -1,0 +1,209 @@
+pipeline {
+    agent any
+    environment {
+        TELEGRAM_BOT_TOKEN = '7309710230:AAHVqKKUkJ4yNxLfh8imyGxamgqctNRaHC0'
+        TELEGRAM_CHAT_ID = '-4210903621'
+        
+        // MAIN Image Manager
+        // Docker hub account
+        DOCKER_HUB_USERNAME = "krolnoeurn"
+        DOCKER_HUB_PASSWORD = "Krolnoeurn36"
+        DOCKER_HUB_REPOSITORY = "krolnoeurn"
+        DOCKER_HUB_IMAGE = "html_dev_ops_images"
+        DOCKER_CREDENTIALS = "docker-hub-credentials"
+        CONTAINER_NAME = "html_dev_ops"
+        CONTAINER_PORT = "8890"
+    
+    }
+    parameters {
+         // Parameter for selecting the deployment action
+        choice(
+            name: 'ACTION',
+            choices: ['deploy', 'rollback'],
+            description: 'Choose whether to deploy a new version or rollback to a previous version.'
+        )
+        // Git tag parameter
+        gitParameter(
+            name: 'TAG',
+            type: 'PT_TAG',
+            defaultValue: '',
+            description: 'Select the Git tag to build.',
+            useRepository: 'https://github.com/krolnoeurn36/html_dev_ops.git',
+            tagFilter: '*',
+            sortMode: 'DESCENDING_SMART',
+            selectedValue: 'TOP',
+            listSize: "7"
+        )
+       
+         // Git branch parameter
+        gitParameter(
+            name: 'BRANCH',
+            type: 'PT_BRANCH',
+            defaultValue: 'main',
+            description: 'Select the Git branch to build.',
+            useRepository: 'https://github.com/krolnoeurn36/html_dev_ops.git',
+            branchFilter: '.*',
+            sortMode: 'DESCENDING_SMART',
+            selectedValue: 'TOP',
+            listSize: "3"
+        )
+    }
+
+    stages {
+        stage('Preparation') {
+            steps {
+                script {
+                  try{
+                   
+                    // Determine if a tag or a branch should be checked out
+                      if (params.TAG) {
+                          echo "Checking out tag: ${params.TAG}"
+                          env.CHECKOUT_REF = "refs/tags/${params.TAG}"
+                      } else {
+                          echo "Checking out branch: ${params.BRANCH}"
+                          env.CHECKOUT_REF = "refs/heads/${params.BRANCH}"
+                      }
+                    if(params.ACTION == "rollback"){
+                        sendTelegramMessage("Status: ${params.ACTION} => on Tag: ${params.TAG}")
+                    }else {
+                      echo "Status: ${params.ACTION} => Branch selected: ${params.BRANCH} and Tag: ${params.TAG}"
+                      sendTelegramMessage("Status: ${params.ACTION} => Branch selected: ${params.BRANCH} and Tag: ${params.TAG}")
+                    
+                    }
+                  }catch (Exception e) {
+                    sendTelegramMessage("Error during checkout process : ${e.message}")
+                    currentBuild.result = 'FAILURE'
+                    throw e
+                  }
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                script {
+                    try{
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "${env.CHECKOUT_REF}"]],
+                            userRemoteConfigs: [[url: 'https://github.com/krolnoeurn36/html_dev_ops.git']]
+                        ])
+                    if(params.ACTION == "rollback"){
+                            sendTelegramMessage("Status: ${params.ACTION} => on Tag: ${params.TAG}")
+                    }else {
+                        // sendTelegramMessage("Status: ${params.ACTION} => Staring checkout from : ${params.BRANCH} with Tag: ${params.TAG}")
+                     
+                        sendTelegramMessage("Status: ${params.ACTION} => Checked done ${params.BRANCH} with Tag: ${params.TAG}")
+                    }  
+                    }catch(Exception e) {
+                        sendTelegramMessage("Error during checkout process : ${e.message}")
+                        currentBuild.result = 'FAILURE'
+                        throw e
+                    }
+                }
+            }
+        }
+
+        stage('Build and Push Docker Image') {
+            steps {
+                script {
+                  try{
+                    if(params.ACTION == "rollback"){
+                          sendTelegramMessage("Status: ${params.ACTION} => on Tag: ${params.TAG}")
+                    }else {
+                      // Implement your build logic here
+                      echo "Status: ${params.ACTION} =>Building from ${env.CHECKOUT_REF}"
+                      sendTelegramMessage("Status: ${params.ACTION} =>Building from ${env.CHECKOUT_REF} to Image:${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}")
+                      // Example build command
+                      withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                      }
+                      sh """
+                        # Login to Docker Hub
+                        # Build, tag, and push Docker image
+                        docker build -t ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} .
+                        docker tag ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}  ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}
+                        docker push ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}
+                      """
+                      sendTelegramMessage("Status: ${params.ACTION} => Build done of ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} and Push to: ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} ")
+                    }
+                  }catch(Exception e) {
+                      sendTelegramMessage("Error during checkout process : ${e.message}")
+                      currentBuild.result = 'FAILURE'
+                      throw e
+                  } 
+                }
+            }
+        }
+        stage("Remove Old Contianer"){
+            steps{
+                script{
+                    try{
+                        sendTelegramMessage("Status: ${params.ACTION} => Remove old container ${env.CONTAINER_NAME}")
+                        // docker rm -f ${env.CONTAINER_NAME}
+                        def commandWrite = """
+                            docker ps -q --filter "name=$CONTAINER_NAME" | grep -q . && docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME || echo "No running container to remove"
+                        """
+                        def status = sh(script: commandWrite, returnStatus: true)
+                        if(!status){
+                            sendTelegramMessage("Status: ${params.ACTION} => Removed old container ${env.CONTAINER_NAME}")
+                        }else {
+                            currentBuild.result = 'FAILURE'
+                            throw e
+                        }
+                    }catch(Exception e) {
+                      sendTelegramMessage("Error during checkout process : ${e.message}")
+                      currentBuild.result = 'FAILURE'
+                      throw e
+                  }  
+                }
+            }
+        }
+        stage("Deploying"){
+            steps{
+              script{
+                  try{
+                   
+                    sendTelegramMessage("Status: ${params.ACTION} => Deploying in ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} ")
+                    def commandWrite = """
+                        docker run -d --name ${env.CONTAINER_NAME} -p ${env.CONTAINER_PORT}:80 ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}
+                    """
+                    def status = sh(script: commandWrite, returnStatus: true)
+                    if(!status){
+                        sendTelegramMessage("Status: ${params.ACTION} => Updated ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} ")
+                    }else {
+                      currentBuild.result = 'FAILURE'
+                      throw e
+                    }
+                  }catch(Exception e) {
+                      sendTelegramMessage("Error during checkout process : ${e.message}")
+                      currentBuild.result = 'FAILURE'
+                      throw e
+                  }  
+              }
+            }
+        }    
+    }
+
+    post {
+        failure {
+            sendTelegramMessage( "Oops!! Your app was built and deployed fail.")
+        }
+        success {
+            sendTelegramMessage( "Congratulations!!!  Your app was built and deployed successfully.")
+        }
+
+
+    }
+}
+
+
+def sendTelegramMessage(String message) {
+    httpRequest(
+        acceptType: 'APPLICATION_JSON',
+        contentType: 'APPLICATION_JSON',
+        httpMode: 'POST',
+        url: "https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage",
+        requestBody: "{\"chat_id\": \"${env.TELEGRAM_CHAT_ID}\", \"text\": \"${message}\"}"
+    )
+}
