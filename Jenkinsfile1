@@ -5,6 +5,9 @@ pipeline {
         TELEGRAM_CHAT_ID = '-4210903621'
         
         // MAIN Image Manager
+        // Docker hub account
+        // DOCKER_HUB_USERNAME = "knoeurn"
+        // DOCKER_HUB_PASSWORD = "Krolnoeurn36"
         DOCKER_HUB_REPOSITORY = "knoeurn"
         DOCKER_HUB_IMAGE = "html_dev_ops_images"
         DOCKER_CREDENTIALS = "docker-hub-credentials"
