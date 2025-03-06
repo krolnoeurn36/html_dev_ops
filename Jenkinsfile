@@ -85,8 +85,12 @@ pipeline {
                     try{
                         sendTelegramMessage("Status: ${params.ACTION} => Remove old container ${env.CONTAINER_NAME}")
                         // docker rm -f ${env.CONTAINER_NAME}
+                        // def commandWrite = """
+                           
+                        //     docker ps -q --filter "name=$CONTAINER_NAME" | grep -q . && docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME || echo "No running container to remove"
+                        // """
                         def commandWrite = """
-                            docker ps -q --filter "name=$CONTAINER_NAME" | grep -q . && docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME || echo "No running container to remove"
+                            ssh root@3.82.232.57 /var/myscripts/remove_old_image.sh $CONTAINER_NAME
                         """
                         def status = sh(script: commandWrite, returnStatus: true)
                         if(!status){
@@ -109,8 +113,12 @@ pipeline {
                   try{
                    
                     sendTelegramMessage("Status: ${params.ACTION} => Deploying in ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG} ")
-                    def commandWrite = """
-                        docker run -d --name ${env.CONTAINER_NAME} -p ${env.CONTAINER_PORT}:80 ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}
+                    // def commandWrite = """
+                       
+                    //     docker run -d --name ${env.CONTAINER_NAME} -p ${env.CONTAINER_PORT}:80 ${env.DOCKER_HUB_REPOSITORY}/${env.DOCKER_HUB_IMAGE}:${params.TAG}
+                    // """
+                    def commandWrite= """
+                        ssh root@3.82.232.57 /var/myscripts/deploy_image.sh ${env.CONTAINER_NAME} ${env.CONTAINER_PORT} ${env.DOCKER_HUB_REPOSITORY} ${env.DOCKER_HUB_IMAGE} ${params.TAG}
                     """
                     def status = sh(script: commandWrite, returnStatus: true)
                     if(!status){
@@ -130,10 +138,10 @@ pipeline {
     }
     post {
         failure {
-            sendTelegramMessage( "Oops!! Your app was built and deployed fail.")
+            sendTelegramMessage( "❌Oops!! Your app was built and deployed fail.")
         }
         success {
-            sendTelegramMessage( "Congratulations!!!  Your app was built and deployed successfully.")
+            sendTelegramMessage( "✅Congratulations!!!  Your app was built and deployed successfully.")
         }
 
 
